@@ -21,5 +21,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Playwright browser
 RUN playwright install chromium
 
-# Lance ton script avec faux écran
-CMD ["xvfb-run", "-a", "python", "main.py"]
+# Lance ton script avec xvfb
+CMD ["xvfb-run", "-a", "python", "-u", "main.py"]

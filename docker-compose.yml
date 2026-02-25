@@ -7,5 +7,3 @@ services:
     restart: unless-stopped
     environment:
       - TZ=Europe/Paris
-    volumes:
-      - ./app:/app

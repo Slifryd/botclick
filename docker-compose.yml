@@ -1,0 +1,13 @@
+version: "3.9"
+
+services:
+  bot:
+    container_name: clicker_bot
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+     
+    volumes:
+      - ./:/app  

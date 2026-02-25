@@ -9,8 +9,8 @@ log = logging.getLogger(__name__)
 
 URL = "https://playhyping.com/fr/vote"
 
-PROFILES = ["Slifryd", "Leoboum"]
-HEADLESS = False  # doit marcher maintenant
+PROFILES = ["Slifryd", "Leoboum"]  # tes pseudos
+HEADLESS = True  # False pour voir le navigateur
 
 VOTES = {
     "VOTE #1": 3 * 3600,
@@ -18,48 +18,67 @@ VOTES = {
     "VOTE #3": 24 * 3600,
 }
 
-USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
 
-
-async def human_delay(a=800, b=1600):
+async def human_delay(a=500, b=1200):
     await asyncio.sleep(random.uniform(a, b) / 1000)
 
 
 async def login(page, username):
     log.info(f"[{username}] Connexion...")
-    await page.goto(URL, wait_until="domcontentloaded")
+    await page.goto(URL, wait_until="networkidle")
     await human_delay()
 
-    await page.click("text=Invité")
+    await page.locator("text=Invité").click()
     await human_delay()
 
     pseudo = page.locator("input[placeholder='Entre ton pseudo ici']")
-    await pseudo.wait_for()
     await pseudo.fill(username)
     await human_delay()
     await pseudo.press("Enter")
 
-    await page.wait_for_load_state("networkidle")
+    await asyncio.sleep(2)
+    await page.reload(wait_until="networkidle")
     log.info(f"[{username}] Connecté ✓")
 
 
 async def try_vote(page, username, label):
     selector = f"div.cursor-pointer:has(h3:has-text('{label}'))"
-
-    await page.wait_for_selector(selector, timeout=10000)
     btn = page.locator(selector).first
 
+    if await btn.count() == 0:
+        log.info(f"[{username}] {label} — bouton introuvable")
+        return False
+
     await btn.scroll_into_view_if_needed()
-    await human_delay()
-    await btn.click(force=True)
+    await human_delay(800, 1500)
 
-    log.info(f"[{username}] {label} — cliqué ✓")
+    box = await btn.bounding_box()
+    if not box:
+        log.warning(f"[{username}] {label} — bounding box introuvable")
+        return False
 
-    await asyncio.sleep(5)
+    x = box["x"] + box["width"] / 2
+    y = box["y"] + box["height"] / 2
 
+    await page.mouse.move(x, y)
+    await human_delay(200, 500)
+    await page.mouse.down()
+    await human_delay(100, 300)
+    await page.mouse.up()
+
+    log.info(f"[{username}] {label} — vrai clic effectué ✓")
+
+    # 🔥 ATTENTE RÉELLE POUR VALIDATION DU VOTE
+    log.info(f"[{username}] Attente 30 secondes pour validation...")
+    await asyncio.sleep(30)
+
+    # 🔥 Ferme les popups APRÈS les 30 secondes
     for p in page.context.pages:
         if p != page:
+            log.info(f"[{username}] Fermeture popup: {p.url}")
             await p.close()
+
+    log.info(f"[{username}] {label} — vote terminé ✓")
 
     return True
 
@@ -67,29 +86,8 @@ async def try_vote(page, username, label):
 async def vote_cycle(playwright):
     browser = await playwright.chromium.launch(
         headless=HEADLESS,
-        args=[
-            "--no-sandbox",
-            "--disable-setuid-sandbox",
-            "--disable-blink-features=AutomationControlled",
-            "--disable-infobars",
-            "--disable-dev-shm-usage"
-        ]
+        args=["--no-sandbox", "--disable-setuid-sandbox"]
     )
-
-    context = await browser.new_context(
-        locale="fr-FR",
-        user_agent=USER_AGENT,
-        viewport={"width": 1280, "height": 800}
-    )
-
-    # cache le webdriver
-    await context.add_init_script("""
-        Object.defineProperty(navigator, 'webdriver', {
-            get: () => undefined
-        });
-    """)
-
-    page = await context.new_page()
 
     next_times = {
         username: {label: 0 for label in VOTES}
@@ -99,13 +97,19 @@ async def vote_cycle(playwright):
     while True:
         for username in PROFILES:
             log.info(f"===== TOUR DE {username} =====")
+
+            # 🔥 NOUVEAU CONTEXTE = session propre
+            context = await browser.new_context(locale="fr-FR")
+            page = await context.new_page()
+
             await login(page, username)
 
             now = time.time()
+
             for label, cooldown in VOTES.items():
                 if now >= next_times[username][label]:
                     try:
-                        await page.reload(wait_until="domcontentloaded")
+                        await page.reload(wait_until="networkidle")
                         await human_delay()
                         success = await try_vote(page, username, label)
 
@@ -116,9 +120,13 @@ async def vote_cycle(playwright):
                             log.info(f"[{username}] {label} — prochain vote dans {h}h{m}m")
                         else:
                             next_times[username][label] = time.time() + 120
+
                     except Exception as e:
                         log.warning(f"[{username}] {label} — erreur : {e}")
                         next_times[username][label] = time.time() + 120
+
+            # 🔥 on ferme complètement la session du joueur
+            await context.close()
 
             await asyncio.sleep(30)
 

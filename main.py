@@ -10,7 +10,7 @@ log = logging.getLogger(__name__)
 URL = "https://playhyping.com/fr/vote"
 
 PROFILES = ["Slifryd", "Leoboum"]  # tes pseudos
-HEADLESS = True  # False pour voir le navigateur
+HEADLESS = False  # False pour voir le navigateur
 
 VOTES = {
     "VOTE #1": 3 * 3600,

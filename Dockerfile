@@ -22,4 +22,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN playwright install chromium
 
 # Lance ton script avec xvfb
-CMD ["sh", "-c", "xvfb-run -a python -u main.py"]
+ENV DISPLAY=:99
+
+CMD ["sh", "-c", "Xvfb :99 -screen 0 1280x800x24 & exec python -u main.py"]

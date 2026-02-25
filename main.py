@@ -17,7 +17,7 @@ log = logging.getLogger(__name__)
 
 URL = "https://playhyping.com/fr/vote"
 PROFILES = ["Slifryd", "Leoboum"]
-HEADLESS = False
+HEADLESS = True
 
 VOTE_LABELS = ["VOTE #1", "VOTE #2", "VOTE #3"]
 

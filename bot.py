@@ -35,19 +35,35 @@ async def human_delay(min_ms=400, max_ms=1200):
     await asyncio.sleep(random.uniform(min_ms, max_ms) / 1000)
 
 
-async def click_task(page, text: str, interval_min: int, interval_max: int, profile_name: str, click_label: str):
+async def click_task(context, page, text: str, interval_min: int, interval_max: int, profile_name: str, click_label: str):
     click_count = 0
     while True:
         try:
-            # Cible le premier div qui contient exactement ce texte
             element = page.locator("div").filter(has_text=text).first
             await element.wait_for(state="visible", timeout=15_000)
             await human_delay(300, 900)
             await element.scroll_into_view_if_needed()
             await human_delay(200, 600)
-            await element.click()
+
+            # Attend qu'un nouvel onglet s'ouvre après le clic
+            async with context.expect_page(timeout=15_000) as new_page_info:
+                await element.click()
+
+            new_page = await new_page_info.value
+            log.info(f"[{profile_name}] {click_label} — nouvel onglet ouvert, attente du chargement...")
+
+            # Attend que la nouvelle page soit chargée (max 10s)
+            try:
+                await new_page.wait_for_load_state("networkidle", timeout=10_000)
+            except Exception:
+                pass  # On continue même si ça timeout
+
+            log.info(f"[{profile_name}] {click_label} — page chargée, fermeture de l'onglet...")
+            await new_page.close()
+
             click_count += 1
             log.info(f"[{profile_name}] {click_label} — clic #{click_count} ✓")
+
         except Exception as e:
             log.warning(f"[{profile_name}] {click_label} — échec du clic : {e}")
 
@@ -93,7 +109,7 @@ async def run_profile(playwright, profile: dict):
     await asyncio.sleep(random.uniform(0, 10))
 
     await asyncio.gather(*[
-        click_task(page, text, imin, imax, name, labels[i])
+        click_task(context, page, text, imin, imax, name, labels[i])
         for i, (text, imin, imax) in enumerate(CLICKS)
     ])
 

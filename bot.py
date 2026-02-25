@@ -1,8 +1,8 @@
 import asyncio
 import random
 import logging
+import time
 from playwright.async_api import async_playwright
-
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
@@ -11,14 +11,14 @@ URL = "https://playhyping.com/fr/vote"
 
 PROFILES = ["Slifryd", "Leoboum"]
 
-# (label, intervalle en secondes)
-VOTES = [
-    ("VOTE #1", 3 * 3600),
-    ("VOTE #2", int(1.5 * 3600)),
-    ("VOTE #3", 24 * 3600),
-]
-
 HEADLESS = True
+
+# Cooldowns en secondes
+VOTES = {
+    "VOTE #1": 3 * 3600,
+    "VOTE #2": int(1.5 * 3600),
+    "VOTE #3": 24 * 3600,
+}
 
 
 async def human_delay(a=500, b=1200):
@@ -45,13 +45,13 @@ async def login(page, username):
     log.info(f"[{username}] Connecté ✓")
 
 
-async def click_vote(page, username, label):
+async def try_vote(page, username, label):
     selector = f"div.cursor-pointer:has(h3:has-text('{label}'))"
     btn = page.locator(selector).first
 
     if await btn.count() == 0:
-        log.info(f"[{username}] {label} — indisponible (cooldown)")
-        return
+        log.info(f"[{username}] {label} — bouton absent")
+        return False
 
     await btn.scroll_into_view_if_needed()
     await human_delay()
@@ -60,25 +60,41 @@ async def click_vote(page, username, label):
 
     await asyncio.sleep(5)
 
-    # Ferme les popups/onglets ouverts
+    # Ferme les onglets pubs
     for p in page.context.pages:
         if p != page:
             await p.close()
 
+    return True
 
-async def vote_loop(page, username, label, interval):
+
+async def vote_manager(page, username):
+    next_times = {label: 0 for label in VOTES}
+
     while True:
-        try:
-            await page.reload(wait_until="networkidle")
-            await human_delay()
-            await click_vote(page, username, label)
-        except Exception as e:
-            log.warning(f"[{username}] {label} — erreur : {e}")
+        now = time.time()
 
-        h = interval // 3600
-        m = (interval % 3600) // 60
-        log.info(f"[{username}] {label} — prochain essai dans {h}h{m}m")
-        await asyncio.sleep(interval)
+        for label, cooldown in VOTES.items():
+            if now >= next_times[label]:
+                try:
+                    await page.reload(wait_until="networkidle")
+                    await human_delay()
+                    success = await try_vote(page, username, label)
+
+                    if success:
+                        next_times[label] = time.time() + cooldown
+                        h = cooldown // 3600
+                        m = (cooldown % 3600) // 60
+                        log.info(f"[{username}] {label} — prochain vote dans {h}h{m}m")
+                    else:
+                        # réessaie dans 2 minutes si bouton absent
+                        next_times[label] = time.time() + 120
+
+                except Exception as e:
+                    log.warning(f"[{username}] {label} — erreur : {e}")
+                    next_times[label] = time.time() + 120
+
+        await asyncio.sleep(60)
 
 
 async def run_profile(playwright, username):
@@ -91,13 +107,7 @@ async def run_profile(playwright, username):
     page = await context.new_page()
 
     await login(page, username)
-
-    tasks = [
-        vote_loop(page, username, label, interval)
-        for label, interval in VOTES
-    ]
-
-    await asyncio.gather(*tasks)
+    await vote_manager(page, username)
 
 
 async def main():

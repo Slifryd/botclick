@@ -24,4 +24,4 @@ RUN playwright install chromium
 # Lance ton script avec xvfb
 ENV DISPLAY=:99
 
-CMD ["sh", "-c", "rm -f /tmp/.X99-lock && Xvfb :99 -screen 0 1280x800x24 & exec python main.py"]
+CMD ["python", "-u", "main.py"]

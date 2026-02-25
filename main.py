@@ -15,8 +15,8 @@ HEADLESS = True
 VOTE_LABELS = ["VOTE #1", "VOTE #2", "VOTE #3"]
 
 # 🔥 Plage horaire autorisée
-START_HOUR = 19
-STOP_HOUR = 23
+START_HOUR = 6
+STOP_HOUR = 2
 
 
 # ==============================

@@ -19,10 +19,11 @@ PROFILES = [
 ]
 
 # (xpath, intervalle_min, intervalle_max) — en secondes
+# Min = valeur + 1min, Max = valeur + 5min
 CLICKS = [
-    ("//*[@id='app']/div/main/section[1]/div[1]/div/div/div[1]",  3*3600 - 300,  3*3600 + 300),   # ~3h
-    ("//*[@id='app']/div/main/section[1]/div[1]/div/div/div[2]",  1*3600 + 30*60 - 300, 1*3600 + 30*60 + 300),  # ~1h30
-    ("//*[@id='app']/div/main/section[1]/div[1]/div/div/div[3]", 24*3600 - 300, 24*3600 + 300),  # ~24h
+    ("//*[@id='app']/div/main/section[1]/div[1]/div/div/div[1]",  3*3600 + 60,  3*3600 + 600),   # 3h+1min à 3h+10min
+    ("//*[@id='app']/div/main/section[1]/div[1]/div/div/div[2]",  5400 + 60,    5400 + 600),      # 1h30+1min à 1h30+10min
+    ("//*[@id='app']/div/main/section[1]/div[1]/div/div/div[3]",  24*3600 + 60, 24*3600 + 600),  # 24h+1min à 24h+10min
 ]
 
 HEADLESS = True
@@ -90,10 +91,8 @@ async def run_profile(playwright, profile: dict):
 
     labels = ["Bouton 1 (3h)", "Bouton 2 (1h30)", "Bouton 3 (24h)"]
 
-    # Décalage initial aléatoire pour que les deux profils ne cliquent pas exactement en même temps
     await asyncio.sleep(random.uniform(0, 10))
 
-    # Lance les 3 tâches en parallèle pour ce profil
     await asyncio.gather(*[
         click_task(page, xpath, imin, imax, name, labels[i])
         for i, (xpath, imin, imax) in enumerate(CLICKS)
@@ -102,7 +101,6 @@ async def run_profile(playwright, profile: dict):
 
 async def main():
     async with async_playwright() as p:
-        # Lance les deux profils en parallèle
         await asyncio.gather(*[
             run_profile(p, profile) for profile in PROFILES
         ])

@@ -27,6 +27,7 @@ CLICKS = [
 ]
 
 HEADLESS = True
+POST_CLICK_WAIT = 10  # secondes d'attente après le clic
 
 # ─────────────────────────────────────────────
 
@@ -37,6 +38,13 @@ async def human_delay(min_ms=400, max_ms=1200):
 
 async def click_task(context, page, text: str, interval_min: int, interval_max: int, profile_name: str, click_label: str):
     click_count = 0
+
+    # Surveille l'ouverture de nouveaux onglets en continu
+    def on_page(new_page):
+        log.info(f"[{profile_name}] 🆕 Nouvel onglet détecté : {new_page.url}")
+
+    context.on("page", on_page)
+
     while True:
         try:
             element = page.locator("div").filter(has_text=text).first
@@ -45,21 +53,21 @@ async def click_task(context, page, text: str, interval_min: int, interval_max: 
             await element.scroll_into_view_if_needed()
             await human_delay(200, 600)
 
-            # Attend qu'un nouvel onglet s'ouvre après le clic
-            async with context.expect_page(timeout=15_000) as new_page_info:
-                await element.click()
+            pages_before = len(context.pages)
+            await element.click()
+            log.info(f"[{profile_name}] {click_label} — clic effectué, attente de {POST_CLICK_WAIT}s...")
 
-            new_page = await new_page_info.value
-            log.info(f"[{profile_name}] {click_label} — nouvel onglet ouvert, attente du chargement...")
+            await asyncio.sleep(POST_CLICK_WAIT)
 
-            # Attend que la nouvelle page soit chargée (max 10s)
-            try:
-                await new_page.wait_for_load_state("networkidle", timeout=10_000)
-            except Exception:
-                pass  # On continue même si ça timeout
-
-            log.info(f"[{profile_name}] {click_label} — page chargée, fermeture de l'onglet...")
-            await new_page.close()
+            pages_after = len(context.pages)
+            if pages_after > pages_before:
+                log.info(f"[{profile_name}] {click_label} — {pages_after - pages_before} onglet(s) ouvert(s) après le clic")
+                for p in context.pages:
+                    if p != page:
+                        log.info(f"[{profile_name}] {click_label} — fermeture onglet : {p.url}")
+                        await p.close()
+            else:
+                log.info(f"[{profile_name}] {click_label} — aucun nouvel onglet détecté")
 
             click_count += 1
             log.info(f"[{profile_name}] {click_label} — clic #{click_count} ✓")

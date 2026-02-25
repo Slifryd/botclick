@@ -30,7 +30,34 @@ POST_CLICK_WAIT = 10
 
 # ─────────────────────────────────────────────
 
+async def login_if_needed(page, username):
+    log.info(f"[{username}] Vérification connexion...")
 
+    await page.goto("https://playhyping.com/fr/vote", wait_until="networkidle")
+    await human_delay(1000, 2000)
+
+    # Clique sur "Invité"
+    invite_btn = page.locator("text=Invité")
+    if await invite_btn.count() > 0:
+        await invite_btn.click()
+        await human_delay(800, 1500)
+
+        # Input pseudo
+        input_pseudo = page.locator("input[placeholder='Entre ton pseudo ici']")
+        await input_pseudo.fill(username)
+        await human_delay(500, 1000)
+
+        await input_pseudo.press("Enter")
+        log.info(f"[{username}] Pseudo entré ✓")
+
+        await asyncio.sleep(2)
+
+        # Refresh pour être connecté
+        await page.reload(wait_until="networkidle")
+        log.info(f"[{username}] Page rechargée après login ✓")
+    else:
+        log.info(f"[{username}] Déjà connecté ✓")
+        
 async def human_delay(min_ms=400, max_ms=1200):
     await asyncio.sleep(random.uniform(min_ms, max_ms) / 1000)
 
@@ -117,6 +144,7 @@ async def run_profile(playwright, profile: dict):
     page_lock = asyncio.Lock()  # Un seul verrou par profil
 
     log.info(f"[{name}] Chargement de {url}...")
+    await login_if_needed(page, name)
     await page.goto(url, wait_until="networkidle")
     log.info(f"[{name}] Page chargée ✓")
 

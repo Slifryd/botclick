@@ -22,4 +22,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN playwright install chromium
 
 # Lance ton script avec xvfb
-CMD ["xvfb-run", "-a", "python", "-u", "main.py"]
+CMD ["sh", "-c", "xvfb-run -a python -u main.py"]

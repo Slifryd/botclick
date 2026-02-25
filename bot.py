@@ -19,7 +19,6 @@ PROFILES = [
 ]
 
 # (numéro du vote, intervalle_min, intervalle_max) — en secondes
-# Min = valeur + 1min, Max = valeur + 5min
 CLICKS = [
     (1,  3*3600 + 60,  3*3600 + 300),   # VOTE #1 — 3h+1min à 3h+5min
     (2,  5400 + 60,    5400 + 300),      # VOTE #2 — 1h30+1min à 1h30+5min
@@ -36,48 +35,48 @@ async def human_delay(min_ms=400, max_ms=1200):
     await asyncio.sleep(random.uniform(min_ms, max_ms) / 1000)
 
 
-async def click_task(context, page, vote_num: int, interval_min: int, interval_max: int, profile_name: str, click_label: str):
+async def click_task(context, page, page_lock, vote_num: int, interval_min: int, interval_max: int, profile_name: str, click_label: str):
     click_count = 0
     while True:
         try:
-            # Recharge la page pour avoir l'état à jour
-            await page.reload(wait_until="networkidle")
-            await human_delay(800, 1500)
+            # Verrou pour éviter que deux tâches rechargent la page en même temps
+            async with page_lock:
+                await page.reload(wait_until="networkidle")
+                await human_delay(800, 1500)
 
-            # Cherche le div cliquable (cursor-pointer) qui contient le h3 avec VOTE #N
-            # Les boutons disponibles ont cursor-pointer, les indisponibles cursor-not-allowed
-            selector = f"div.cursor-pointer:has(h3:has-text('VOTE #{vote_num}'))"
-            
-            btn = page.locator(selector).first
-            count = await btn.count()
+                selector = f"div.cursor-pointer:has(h3:has-text('VOTE #{vote_num}'))"
+                btn = page.locator(selector).first
+                count = await btn.count()
 
-            if count == 0:
-                log.info(f"[{profile_name}] {click_label} — vote non disponible (cooldown actif)")
-            else:
-                await btn.wait_for(state="visible", timeout=10_000)
-                await human_delay(300, 800)
-                await btn.scroll_into_view_if_needed()
-                await human_delay(200, 500)
-
-                pages_before = len(context.pages)
-                await btn.click()
-                log.info(f"[{profile_name}] {click_label} — clic effectué, attente de {POST_CLICK_WAIT}s...")
-                await asyncio.sleep(POST_CLICK_WAIT)
-
-                # Ferme les onglets ouverts après le clic
-                pages_after = context.pages
-                for p in pages_after:
-                    if p != page:
-                        log.info(f"[{profile_name}] {click_label} — fermeture onglet : {p.url}")
-                        await p.close()
-
-                if len(context.pages) > pages_before - 1:
-                    log.info(f"[{profile_name}] {click_label} — nouvel onglet détecté et fermé ✓")
+                if count == 0:
+                    log.info(f"[{profile_name}] {click_label} — vote non disponible (cooldown actif)")
                 else:
-                    log.info(f"[{profile_name}] {click_label} — aucun nouvel onglet")
+                    await btn.wait_for(state="visible", timeout=10_000)
+                    await human_delay(300, 800)
+                    await btn.scroll_into_view_if_needed()
+                    await human_delay(200, 500)
 
-                click_count += 1
-                log.info(f"[{profile_name}] {click_label} — clic #{click_count} ✓")
+                    pages_before = len(context.pages)
+                    await btn.click()
+                    log.info(f"[{profile_name}] {click_label} — clic effectué, attente de {POST_CLICK_WAIT}s...")
+
+            # Attente hors du verrou pour ne pas bloquer les autres tâches
+            await asyncio.sleep(POST_CLICK_WAIT)
+
+            # Ferme les onglets ouverts après le clic
+            for p in context.pages:
+                if p != page:
+                    log.info(f"[{profile_name}] {click_label} — fermeture onglet : {p.url}")
+                    await p.close()
+
+            pages_after = len(context.pages)
+            if pages_after > pages_before:
+                log.info(f"[{profile_name}] {click_label} — nouvel onglet détecté et fermé ✓")
+            else:
+                log.info(f"[{profile_name}] {click_label} — aucun nouvel onglet")
+
+            click_count += 1
+            log.info(f"[{profile_name}] {click_label} — clic #{click_count} ✓")
 
         except Exception as e:
             log.warning(f"[{profile_name}] {click_label} — erreur : {e}")
@@ -115,6 +114,8 @@ async def run_profile(playwright, profile: dict):
     """)
 
     page = await context.new_page()
+    page_lock = asyncio.Lock()  # Un seul verrou par profil
+
     log.info(f"[{name}] Chargement de {url}...")
     await page.goto(url, wait_until="networkidle")
     log.info(f"[{name}] Page chargée ✓")
@@ -124,7 +125,7 @@ async def run_profile(playwright, profile: dict):
     await asyncio.sleep(random.uniform(0, 10))
 
     await asyncio.gather(*[
-        click_task(context, page, vote_num, imin, imax, name, labels[i])
+        click_task(context, page, page_lock, vote_num, imin, imax, name, labels[i])
         for i, (vote_num, imin, imax) in enumerate(CLICKS)
     ])
 

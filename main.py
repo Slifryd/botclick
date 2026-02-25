@@ -2,17 +2,10 @@ import asyncio
 import random
 import logging
 import re
-import time
+from datetime import datetime, timedelta
 from playwright.async_api import async_playwright
 
-# ==============================
-# CONFIG
-# ==============================
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
 
 URL = "https://playhyping.com/fr/vote"
@@ -21,6 +14,29 @@ HEADLESS = True
 
 VOTE_LABELS = ["VOTE #1", "VOTE #2", "VOTE #3"]
 
+# 🔥 Plage horaire autorisée
+START_HOUR = 19
+STOP_HOUR = 23
+
+
+# ==============================
+# HORAIRES
+# ==============================
+
+def seconds_until_start():
+    now = datetime.now()
+    start_today = now.replace(hour=START_HOUR, minute=0, second=0, microsecond=0)
+
+    if now >= start_today:
+        start_today += timedelta(days=1)
+
+    return int((start_today - now).total_seconds())
+
+
+def is_allowed_hour():
+    now = datetime.now().hour
+    return START_HOUR <= now < STOP_HOUR
+
 
 # ==============================
 # HUMAN DELAY
@@ -28,28 +44,6 @@ VOTE_LABELS = ["VOTE #1", "VOTE #2", "VOTE #3"]
 
 async def human_delay(a=500, b=1200):
     await asyncio.sleep(random.uniform(a, b) / 1000)
-
-
-# ==============================
-# PARSE TIMER
-# ==============================
-
-def parse_timer(text):
-    text = text.lower()
-
-    hours = re.search(r"(\d+)h", text)
-    minutes = re.search(r"(\d+)m", text)
-    seconds = re.search(r"(\d+)s", text)
-
-    total = 0
-    if hours:
-        total += int(hours.group(1)) * 3600
-    if minutes:
-        total += int(minutes.group(1)) * 60
-    if seconds:
-        total += int(seconds.group(1))
-
-    return total
 
 
 # ==============================
@@ -79,38 +73,57 @@ async def login(page, username):
 
 
 # ==============================
-# ANALYSE + VOTE
+# PARSE TIMER
 # ==============================
 
-async def analyze_vote(page, username, label):
-    # Trouve le titre exact VOTE #X
-    title = page.locator(f"h3:has-text('{label}')").first
+def parse_timer(text):
+    text = text.lower()
 
-    if await title.count() == 0:
+    hours = re.search(r"(\d+)h", text)
+    minutes = re.search(r"(\d+)m", text)
+    seconds = re.search(r"(\d+)s", text)
+
+    total = 0
+    if hours:
+        total += int(hours.group(1)) * 3600
+    if minutes:
+        total += int(minutes.group(1)) * 60
+    if seconds:
+        total += int(seconds.group(1))
+
+    return total
+
+
+# ==============================
+# CHECK & VOTE
+# ==============================
+
+async def check_vote(page, username, label):
+    box = page.locator("div.rounded-2xl").filter(has_text=label).first
+
+    if await box.count() == 0:
         log.info(f"[{username}] {label} introuvable")
         return None
-
-    # Remonte au bloc parent principal
-    box = title.locator("xpath=ancestor::div[contains(@class,'rounded-2xl')]").first
 
     await box.scroll_into_view_if_needed()
     await human_delay()
 
-    # Cherche le timer DANS CE BLOC UNIQUEMENT
-    timer_element = box.locator("p:has-text('Disponible')").first
+    timer_element = box.locator("p")
 
     if await timer_element.count() > 0:
-        timer_text = await timer_element.inner_text()
-        seconds = parse_timer(timer_text)
+        text = await timer_element.inner_text()
 
-        log.info(
-            f"[{username}] {label} → {timer_text.strip()} "
-            f"({seconds} sec restantes)"
-        )
+        if "Disponible" in text:
+            seconds = parse_timer(text)
 
-        return seconds
+            log.info(
+                f"[{username}] {label} → {text.strip()} "
+                f"({seconds} sec restantes)"
+            )
 
-    # 🔥 Si pas de timer → vote dispo
+            return seconds
+
+    # 🔥 Si pas de timer = vote dispo
     try:
         await box.click()
         log.info(f"[{username}] {label} — clic effectué ✓")
@@ -136,14 +149,18 @@ async def analyze_vote(page, username, label):
 async def vote_cycle(playwright):
     browser = await playwright.chromium.launch(
         headless=HEADLESS,
-        args=[
-            "--no-sandbox",
-            "--disable-setuid-sandbox",
-            "--disable-dev-shm-usage"
-        ]
+        args=["--no-sandbox", "--disable-setuid-sandbox"]
     )
 
     while True:
+
+        # 🔥 Gestion horaire
+        if not is_allowed_hour():
+            sleep_time = seconds_until_start()
+            log.info(f"⏸ Hors plage horaire → sommeil {sleep_time} sec")
+            await asyncio.sleep(sleep_time)
+            continue
+
         all_timers = []
 
         for username in PROFILES:
@@ -158,21 +175,21 @@ async def vote_cycle(playwright):
                 await page.reload(wait_until="networkidle")
                 await human_delay()
 
-                result = await analyze_vote(page, username, label)
+                result = await check_vote(page, username, label)
 
                 if result and result > 0:
                     all_timers.append(result)
 
             await context.close()
 
-        # 🔥 Calcul intelligent du prochain réveil
         if all_timers:
             sleep_time = min(all_timers)
+            log.info(f"Prochain vote dispo dans {sleep_time} secondes")
         else:
-            sleep_time = 300  # fallback 5 min
-
-        log.info(f"Bot en veille pour {sleep_time} secondes")
-        await asyncio.sleep(sleep_time)
+            sleep_time = 300
+        nombre = random.randint(10, 300) + sleep_time
+        log.info(f"Bot en veille pour {nombre} secondes")
+        await asyncio.sleep(nombre)
 
 
 # ==============================

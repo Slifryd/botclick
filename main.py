@@ -1,35 +1,71 @@
 import asyncio
 import random
 import logging
+import re
 import time
 from playwright.async_api import async_playwright
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+# ==============================
+# CONFIG
+# ==============================
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s"
+)
 log = logging.getLogger(__name__)
 
 URL = "https://playhyping.com/fr/vote"
+PROFILES = ["Slifryd", "Leoboum"]
+HEADLESS = False
 
-PROFILES = ["Slifryd", "Leoboum"]  # tes pseudos
-HEADLESS = True  # False pour voir le navigateur
+VOTE_LABELS = ["VOTE #1", "VOTE #2", "VOTE #3"]
 
-VOTES = {
-    "VOTE #1": 3 * 3600,
-    "VOTE #2": int(1.5 * 3600),
-    "VOTE #3": 24 * 3600,
-}
 
+# ==============================
+# HUMAN DELAY
+# ==============================
 
 async def human_delay(a=500, b=1200):
     await asyncio.sleep(random.uniform(a, b) / 1000)
 
 
+# ==============================
+# PARSE TIMER
+# ==============================
+
+def parse_timer(text):
+    text = text.lower()
+
+    hours = re.search(r"(\d+)h", text)
+    minutes = re.search(r"(\d+)m", text)
+    seconds = re.search(r"(\d+)s", text)
+
+    total = 0
+    if hours:
+        total += int(hours.group(1)) * 3600
+    if minutes:
+        total += int(minutes.group(1)) * 60
+    if seconds:
+        total += int(seconds.group(1))
+
+    return total
+
+
+# ==============================
+# LOGIN
+# ==============================
+
 async def login(page, username):
     log.info(f"[{username}] Connexion...")
+
     await page.goto(URL, wait_until="networkidle")
     await human_delay()
 
-    await page.locator("text=Invité").click()
-    await human_delay()
+    invite_btn = page.locator("text=Invité")
+    if await invite_btn.count() > 0:
+        await invite_btn.click()
+        await human_delay()
 
     pseudo = page.locator("input[placeholder='Entre ton pseudo ici']")
     await pseudo.fill(username)
@@ -38,101 +74,110 @@ async def login(page, username):
 
     await asyncio.sleep(2)
     await page.reload(wait_until="networkidle")
+
     log.info(f"[{username}] Connecté ✓")
 
 
-async def try_vote(page, username, label):
-    selector = f"div.cursor-pointer:has(h3:has-text('{label}'))"
-    btn = page.locator(selector).first
+# ==============================
+# ANALYSE + VOTE
+# ==============================
 
-    if await btn.count() == 0:
-        log.info(f"[{username}] {label} — bouton introuvable")
-        return False
+async def analyze_vote(page, username, label):
+    # Trouve le titre exact VOTE #X
+    title = page.locator(f"h3:has-text('{label}')").first
 
-    await btn.scroll_into_view_if_needed()
-    await human_delay(800, 1500)
+    if await title.count() == 0:
+        log.info(f"[{username}] {label} introuvable")
+        return None
 
-    box = await btn.bounding_box()
-    if not box:
-        log.warning(f"[{username}] {label} — bounding box introuvable")
-        return False
+    # Remonte au bloc parent principal
+    box = title.locator("xpath=ancestor::div[contains(@class,'rounded-2xl')]").first
 
-    x = box["x"] + box["width"] / 2
-    y = box["y"] + box["height"] / 2
+    await box.scroll_into_view_if_needed()
+    await human_delay()
 
-    await page.mouse.move(x, y)
-    await human_delay(200, 500)
-    await page.mouse.down()
-    await human_delay(100, 300)
-    await page.mouse.up()
+    # Cherche le timer DANS CE BLOC UNIQUEMENT
+    timer_element = box.locator("p:has-text('Disponible')").first
 
-    log.info(f"[{username}] {label} — vrai clic effectué ✓")
+    if await timer_element.count() > 0:
+        timer_text = await timer_element.inner_text()
+        seconds = parse_timer(timer_text)
 
-    # 🔥 ATTENTE RÉELLE POUR VALIDATION DU VOTE
-    log.info(f"[{username}] Attente 30 secondes pour validation...")
-    await asyncio.sleep(30)
+        log.info(
+            f"[{username}] {label} → {timer_text.strip()} "
+            f"({seconds} sec restantes)"
+        )
 
-    # 🔥 Ferme les popups APRÈS les 30 secondes
-    for p in page.context.pages:
-        if p != page:
-            log.info(f"[{username}] Fermeture popup: {p.url}")
-            await p.close()
+        return seconds
 
-    log.info(f"[{username}] {label} — vote terminé ✓")
+    # 🔥 Si pas de timer → vote dispo
+    try:
+        await box.click()
+        log.info(f"[{username}] {label} — clic effectué ✓")
 
-    return True
+        log.info(f"[{username}] Attente 30s validation...")
+        await asyncio.sleep(30)
 
+        for p in page.context.pages:
+            if p != page:
+                await p.close()
+
+        return 0
+
+    except Exception as e:
+        log.warning(f"[{username}] {label} erreur clic : {e}")
+        return None
+
+
+# ==============================
+# MAIN LOOP
+# ==============================
 
 async def vote_cycle(playwright):
     browser = await playwright.chromium.launch(
         headless=HEADLESS,
-        args=["--no-sandbox", "--disable-setuid-sandbox"]
+        args=[
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-dev-shm-usage"
+        ]
     )
 
-    next_times = {
-        username: {label: 0 for label in VOTES}
-        for username in PROFILES
-    }
-
     while True:
+        all_timers = []
+
         for username in PROFILES:
             log.info(f"===== TOUR DE {username} =====")
 
-            # 🔥 NOUVEAU CONTEXTE = session propre
             context = await browser.new_context(locale="fr-FR")
             page = await context.new_page()
 
             await login(page, username)
 
-            now = time.time()
+            for label in VOTE_LABELS:
+                await page.reload(wait_until="networkidle")
+                await human_delay()
 
-            for label, cooldown in VOTES.items():
-                if now >= next_times[username][label]:
-                    try:
-                        await page.reload(wait_until="networkidle")
-                        await human_delay()
-                        success = await try_vote(page, username, label)
+                result = await analyze_vote(page, username, label)
 
-                        if success:
-                            next_times[username][label] = time.time() + cooldown
-                            h = cooldown // 3600
-                            m = (cooldown % 3600) // 60
-                            log.info(f"[{username}] {label} — prochain vote dans {h}h{m}m")
-                        else:
-                            next_times[username][label] = time.time() + 120
+                if result and result > 0:
+                    all_timers.append(result)
 
-                    except Exception as e:
-                        log.warning(f"[{username}] {label} — erreur : {e}")
-                        next_times[username][label] = time.time() + 120
-
-            # 🔥 on ferme complètement la session du joueur
             await context.close()
 
-            await asyncio.sleep(30)
+        # 🔥 Calcul intelligent du prochain réveil
+        if all_timers:
+            sleep_time = min(all_timers)
+        else:
+            sleep_time = 300  # fallback 5 min
 
-        log.info("Boucle complète terminée, pause 60s")
-        await asyncio.sleep(60)
+        log.info(f"Bot en veille pour {sleep_time} secondes")
+        await asyncio.sleep(sleep_time)
 
+
+# ==============================
+# ENTRYPOINT
+# ==============================
 
 async def main():
     async with async_playwright() as p:

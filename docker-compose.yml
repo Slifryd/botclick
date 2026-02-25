@@ -5,3 +5,7 @@ services:
     build: .
     container_name: clicker_bot
     restart: unless-stopped
+    environment:
+      - TZ=Europe/Paris
+    volumes:
+      - ./app:/app

@@ -18,12 +18,12 @@ PROFILES = [
     {"name": "Leoboum", "url": "https://playhyping.com/vote?username=Leoboum"},
 ]
 
-# (xpath, intervalle_min, intervalle_max) — en secondes
+# (texte du bouton, intervalle_min, intervalle_max) — en secondes
 # Min = valeur + 1min, Max = valeur + 5min
 CLICKS = [
-    ("//*[@id='app']/div/main/section[1]/div[1]/div/div/div[1]",  3*3600 + 60,  3*3600 + 600),   # 3h+1min à 3h+10min
-    ("//*[@id='app']/div/main/section[1]/div[1]/div/div/div[2]",  5400 + 60,    5400 + 600),      # 1h30+1min à 1h30+10min
-    ("//*[@id='app']/div/main/section[1]/div[1]/div/div/div[3]",  24*3600 + 60, 24*3600 + 600),  # 24h+1min à 24h+10min
+    ("VOTE #1",  3*3600 + 60,  3*3600 + 300),   # 3h+1min à 3h+5min
+    ("VOTE #2",  5400 + 60,    5400 + 300),      # 1h30+1min à 1h30+5min
+    ("VOTE #3",  24*3600 + 60, 24*3600 + 300),   # 24h+1min à 24h+5min
 ]
 
 HEADLESS = True
@@ -35,14 +35,14 @@ async def human_delay(min_ms=400, max_ms=1200):
     await asyncio.sleep(random.uniform(min_ms, max_ms) / 1000)
 
 
-async def click_task(page, xpath: str, interval_min: int, interval_max: int, profile_name: str, click_label: str):
-    """Tâche indépendante pour un élément : clique en boucle à sa propre fréquence."""
+async def click_task(page, text: str, interval_min: int, interval_max: int, profile_name: str, click_label: str):
     click_count = 0
     while True:
         try:
-            await page.wait_for_selector(f"xpath={xpath}", state="visible", timeout=15_000)
+            # Cible le premier div qui contient exactement ce texte
+            element = page.locator("div").filter(has_text=text).first
+            await element.wait_for(state="visible", timeout=15_000)
             await human_delay(300, 900)
-            element = page.locator(f"xpath={xpath}")
             await element.scroll_into_view_if_needed()
             await human_delay(200, 600)
             await element.click()
@@ -59,7 +59,6 @@ async def click_task(page, xpath: str, interval_min: int, interval_max: int, pro
 
 
 async def run_profile(playwright, profile: dict):
-    """Lance un navigateur pour un profil et démarre les 3 tâches de clic en parallèle."""
     name = profile["name"]
     url  = profile["url"]
 
@@ -94,8 +93,8 @@ async def run_profile(playwright, profile: dict):
     await asyncio.sleep(random.uniform(0, 10))
 
     await asyncio.gather(*[
-        click_task(page, xpath, imin, imax, name, labels[i])
-        for i, (xpath, imin, imax) in enumerate(CLICKS)
+        click_task(page, text, imin, imax, name, labels[i])
+        for i, (text, imin, imax) in enumerate(CLICKS)
     ])
 
 

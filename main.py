@@ -13,7 +13,7 @@ URL = "https://playhyping.com/fr/vote"
 PROFILES = ["Slifryd", "Leoboum"]
 HEADLESS = True
 
-VOTE_LABELS = ["VOTE #1", "VOTE #2", "VOTE #3"]
+VOTE_LABELS = ["VOTE #1", "VOTE #2"]
 
 START_HOUR = 6     # Autorisé à partir de 06:00
 STOP_HOUR = 2      # Stop à 02:00 (le lendemain)

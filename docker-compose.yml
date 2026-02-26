@@ -1,9 +1,27 @@
-version: "3.9"
+version: '3.8'
 
 services:
-  bot:
-    build: .
-    container_name: clicker_bot
-    restart: unless-stopped
+  vote-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: vote-bot
     environment:
-      - TZ=Europe/Paris
+      # Configuration du script
+      - NOPECHA_API_KEY=${NOPECHA_API_KEY:-YOUR_NOPECHA_API_KEY}
+      - NOPECHA_ENABLED=${NOPECHA_ENABLED:-false}
+      - PYTHONUNBUFFERED=1
+    volumes:
+      # Pour logs persistants
+      - ./logs:/app/logs
+    # Restart policy
+    restart: unless-stopped
+    # Ressources
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G

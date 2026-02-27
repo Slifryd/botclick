@@ -310,12 +310,12 @@ async def check_vote(page, username, label):
 # ==============================
 
 async def vote_cycle(playwright):
-    
-    context = await playwright.chromium.launch_persistent_context(...)
-    await inject_nopecha_settings(context, NOPECHA_API_KEY)
     args = [
         f"--disable-extensions-except={NOPECHA_EXT_PATH}",
         f"--load-extension={NOPECHA_EXT_PATH}",
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
         "--disable-gpu",
     ]
 
@@ -341,6 +341,8 @@ async def vote_cycle(playwright):
                 args=args,
                 proxy=proxy,
             )
+
+            await inject_nopecha_settings(context, NOPECHA_API_KEY)
 
             page = await context.new_page()
             await login(page, username)

@@ -319,49 +319,19 @@ async def vote_cycle(playwright):
         "--disable-gpu",
     ]
 
-    while True:
-        if not is_allowed_hour():
-            sleep_time = seconds_until_start()
-            log.info(f"⏸ Pause {sleep_time}s")
-            await asyncio.sleep(sleep_time)
-            continue
+    context = await playwright.chromium.launch_persistent_context(
+        user_data_dir=os.path.join(tempfile.gettempdir(), "test_ext"),
+        headless=HEADLESS,
+        args=args,
+    )
 
-        all_timers = []
+    await asyncio.sleep(3)
 
-        for profile in PROFILES:
-            username = profile["username"]
-            proxy = profile["proxy"]
+    for bg in context.background_pages:
+        log.info(f">>> EXTENSION ID : {bg.url}")
 
-            profile_dir = os.path.join(tempfile.gettempdir(), f"playwright_bot_{username}")
-            os.makedirs(profile_dir, exist_ok=True)
+    await context.close()
 
-            context = await playwright.chromium.launch_persistent_context(
-                user_data_dir=profile_dir,
-                headless=HEADLESS,
-                args=args,
-                proxy=proxy,
-            )
-
-            await inject_nopecha_settings(context, NOPECHA_API_KEY)
-
-            page = await context.new_page()
-            await login(page, username)
-
-            for label in VOTE_LABELS:
-                await page.reload(wait_until="networkidle")
-                result = await check_vote(page, username, label)
-                if result:
-                    all_timers.append(result)
-
-            await page.close()
-            await context.close()
-
-        next_sleep = min(all_timers) if all_timers else 300
-        log.info(f"Prochain check dans {next_sleep}s")
-        await asyncio.sleep(next_sleep)
-async def main():
-    async with async_playwright() as p:
-        await vote_cycle(p)
 
 if __name__ == "__main__":
     asyncio.run(main())

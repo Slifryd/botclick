@@ -23,7 +23,7 @@ VOTE_LABELS = ["VOTE #1", "VOTE #2", "VOTE #3"]
 START_HOUR = 6
 STOP_HOUR = 2
 
-NOPECHA_EXT_PATH = r"C:\Users\Utilisateur\Pictures\botclick-main\0.5.5_0"
+NOPECHA_EXT_PATH = "./0.5.5_0"
 
 # ==============================
 # CONFIG SITES
@@ -295,6 +295,7 @@ async def vote_cycle(playwright):
     args = [
         f"--disable-extensions-except={NOPECHA_EXT_PATH}",
         f"--load-extension={NOPECHA_EXT_PATH}",
+        "--disable-gpu",
     ]
 
     while True:

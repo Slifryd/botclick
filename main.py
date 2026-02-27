@@ -4,7 +4,27 @@ import logging
 import re
 from datetime import datetime, timedelta
 from playwright.async_api import async_playwright
+import json
+import os, tempfile
+async def inject_nopecha_settings(context, api_key):
+    settings = json.load(open("nopecha_settings.json"))
+    settings["keys"] = api_key  # injecte la clé API
 
+    # Ouvre une page sur l'extension pour injecter dans son localStorage
+    ext_page = await context.new_page()
+    await ext_page.goto(f"chrome-extension://dknlfmjaanfblgfdfebhijalfmhmjjjo/index.html")
+    
+    await ext_page.evaluate(f"""
+        () => {{
+            const settings = {json.dumps(settings)};
+            for (const [key, value] of Object.entries(settings)) {{
+                localStorage.setItem(key, JSON.stringify(value));
+            }}
+        }}
+    """)
+    
+    await ext_page.close()
+    log.info("NopeCHA settings injectés ✓")
 # ==============================
 # CONFIG
 # ==============================
@@ -290,8 +310,9 @@ async def check_vote(page, username, label):
 # ==============================
 
 async def vote_cycle(playwright):
-    import os, tempfile
-
+    
+    context = await playwright.chromium.launch_persistent_context(...)
+    await inject_nopecha_settings(context, NOPECHA_API_KEY)
     args = [
         f"--disable-extensions-except={NOPECHA_EXT_PATH}",
         f"--load-extension={NOPECHA_EXT_PATH}",

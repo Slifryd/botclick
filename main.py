@@ -16,7 +16,7 @@ PROFILES = [
         "server": "http://104.238.30.63:63744",
     }},
 ]
-HEADLESS = False
+HEADLESS = True
 
 VOTE_LABELS = ["VOTE #1", "VOTE #2", "VOTE #3"]
 

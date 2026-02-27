@@ -331,6 +331,12 @@ async def vote_cycle(playwright):
         log.info(f">>> EXTENSION ID : {bg.url}")
 
     await context.close()
+async def main():
+    async with async_playwright() as p:
+        await vote_cycle(p)
+
+if __name__ == "__main__":
+    asyncio.run(main())
 
 
 if __name__ == "__main__":

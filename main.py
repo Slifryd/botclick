@@ -308,7 +308,7 @@ async def check_vote(page, username, label):
 # ==============================
 # MAIN
 # ==============================
-
+NOPECHA_API_KEY = os.environ.get("NOPECHA_API_KEY", "")
 async def vote_cycle(playwright):
     args = [
         f"--disable-extensions-except={NOPECHA_EXT_PATH}",
